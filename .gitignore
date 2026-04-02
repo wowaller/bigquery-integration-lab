@@ -1,5 +1,5 @@
 venv*
 *.idea*
-*/target*
+*target*
 .key/*
 archive/*
