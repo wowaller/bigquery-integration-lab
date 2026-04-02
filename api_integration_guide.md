@@ -303,4 +303,74 @@ for (ProcessLinks processLink : processLinksList.iterateAll()) {
       }
     }
   }
+
+---
+
+## ☕ 4. BigQuery JDBC 访问机制 (BigQuery JDBC Access Mechanism)
+
+在某些情况下，传统的 SDK（基于 REST/gRPC）可能与项目现有的依赖（如 `libraries-bom`）发生冲突。此时使用 **JDBC 驱动隔离方案** 是最佳实践。
+
+### 🔑 核心类与驱动：
+- **Driver Class**: `com.google.cloud.bigquery.jdbc.BigQueryDriver`
+- **Connection URL**: `jdbc:bigquery://https://www.googleapis.com/bigquery/v2:443;ProjectId={项目ID};OAuthType=0;OAuthPvtKeyPath={密钥文件路径}`
+
+### 💻 隔离项目配置 (Isolated `pom.xml`)
+
+为了避免依赖冲突，建议将 JDBC Demo 放到一个独立的子模块中，并在 `maven-shade-plugin` 中过滤签名文件：
+
+```xml
+<plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-shade-plugin</artifactId>
+    <version>3.6.0</version>
+    <executions>
+        <execution>
+            <phase>package</phase>
+            <goals><goal>shade</goal></goals>
+            <configuration>
+                <filters>
+                    <filter>
+                        <artifact>*:*</artifact>
+                        <excludes>
+                            <exclude>META-INF/*.SF</exclude>
+                            <exclude>META-INF/*.DSA</exclude>
+                            <exclude>META-INF/*.RSA</exclude>
+                        </excludes>
+                    </filter>
+                </filters>
+            </configuration>
+        </execution>
+    </executions>
+</plugin>
+```
+
+### 💻 代码示例：读取 Metadata 与 表描述 (Reading Metadata and Descriptions)
+
+使用 `ResultSetMetaData` 可以动态读取任意查询（如 `SELECT *` 或 `INFORMATION_SCHEMA`）的所有列，而无需硬编码列名：
+
+```java
+String sql = "SELECT * FROM `llm_demo.INFORMATION_SCHEMA.TABLES` WHERE table_name = 'mihoyo_features_with_id'";
+
+try (Connection conn = DriverManager.getConnection(url);
+     Statement stmt = conn.createStatement();
+     ResultSet rs = stmt.executeQuery(sql)) {
+
+    ResultSetMetaData metaData = rs.getMetaData();
+    int columnCount = metaData.getColumnCount();
+
+    while (rs.next()) {
+        for (int i = 1; i <= columnCount; i++) {
+            System.out.print(metaData.getColumnName(i) + ": " + rs.getString(i) + " | ");
+        }
+        System.out.println();
+    }
+}
+```
+
+> [!TIP]
+> querying `INFORMATION_SCHEMA.TABLES` allows you to extract **DDL statements** and **Table Descriptions** defined in BigQuery!
   ```
+
+
+
+

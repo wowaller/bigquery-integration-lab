@@ -38,6 +38,13 @@
             <artifactId>google-cloud-datalineage</artifactId>
         </dependency>
 
+        <!-- BigQuery JDBC Driver (Official Doc Version) -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-bigquery-jdbc</artifactId>
+            <version>0.3.0</version>
+        </dependency>
+
         <!-- Command Line Parser -->
         <dependency>
             <groupId>commons-cli</groupId>
