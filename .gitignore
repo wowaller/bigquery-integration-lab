@@ -2,4 +2,4 @@ venv*
 *.idea*
 *target*
 .key/*
-archive/*
+archive*
