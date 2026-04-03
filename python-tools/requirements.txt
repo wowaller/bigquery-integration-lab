@@ -2,3 +2,4 @@ google-cloud-bigquery
 pyOpenSSL
 google-cloud-dataplex
 google-cloud-datacatalog-lineage
+google-cloud-dataform
