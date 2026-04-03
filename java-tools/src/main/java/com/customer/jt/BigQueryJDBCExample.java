@@ -22,7 +22,6 @@ public class BigQueryJDBCExample {
         String keyPath = args[1];
 
         // Connection string for Service Account authentication (OAuthType=0)
-        // Note: Many driver versions can read the JSON file directly without explicit ServiceAcctEmail.
         String url = String.format(
             "jdbc:bigquery://https://www.googleapis.com/bigquery/v2:443;ProjectId=%s;OAuthType=0;OAuthPvtKeyPath=%s;",
             projectId, keyPath
