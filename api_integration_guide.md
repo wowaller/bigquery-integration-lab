@@ -371,6 +371,90 @@ try (Connection conn = DriverManager.getConnection(url);
 > querying `INFORMATION_SCHEMA.TABLES` allows you to extract **DDL statements** and **Table Descriptions** defined in BigQuery!
   ```
 
+---
+
+# 第 5 部分：BigQuery Visual Pipeline / Dataform 统一监控指南 (Python)
+
+本指南介绍如何使用 Python 脚本，通过扫描 **BigQuery 作业历史 (Job History)**，动态发现并监控所有的数据管道（包括 BigQuery Studio 可视化管道和 Dataform 代码管道）。
+
+这种方法比直接调用 Dataform API 更优，因为 **可视化管道 (Visual Pipelines) 不会生成标准的 Dataform Invocations，而是直接作为标准 BigQuery 作业运行。**
+
+## 🎯 监控覆盖的核心字段
+
+该方案能够 100% 覆盖企业对可视管道监控的合规审计要求：
+
+1.  **任务名** (Task Name)
+2.  **任务 ID** (Job ID)
+3.  **Dag 名称** (可视化画布中的流程名)
+4.  **负责人** (执行任务的用户邮箱)
+5.  **启动时间 / 结束时间 / 运行时长**
+6.  **任务批次 (Run ID)** (一次触发下的所有批次号)
+7.  **任务状态** (支持异常筛选)
+
+---
+
+## 🛠️ Python 自动化脚本
+
+脚本位于：`python-tools/universal_pipeline_monitor.py`
+
+### 核心逻辑 (SQL 驱动)
+
+脚本通过查询 `INFORMATION_SCHEMA.JOBS` 视图并解析 Dataform 自动挂载的 `labels` 来实现动态发现：
+
+```python
+import argparse
+from google.cloud import bigquery
+
+def monitor_pipelines(project_id, hours=24, failed_only=False, region="us"):
+    client = bigquery.Client(project=project_id)
+
+    # 动态解析 labels
+    query = f"""
+    SELECT 
+      job_id, user_email, start_time, end_time,
+      TIMESTAMP_DIFF(end_time, start_time, SECOND) as duration_seconds,
+      state, error_result.message as error_msg,
+      
+      COALESCE(
+        (SELECT value FROM UNNEST(labels) WHERE key = 'dag_name'),
+        (SELECT value FROM UNNEST(labels) WHERE key = 'dataform_repository_id'),
+        'Unknown_DAG'
+      ) AS dag_name,
+      
+      COALESCE(
+        (SELECT value FROM UNNEST(labels) WHERE key = 'task_name'),
+        'Unknown_Task'
+      ) AS task_name
+    FROM 
+      `region-{region}`.INFORMATION_SCHEMA.JOBS_BY_PROJECT
+    WHERE 
+      creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @hours HOUR)
+      AND (
+        EXISTS (SELECT 1 FROM UNNEST(labels) WHERE key LIKE 'dataform_%')
+        OR EXISTS (SELECT 1 FROM UNNEST(labels) WHERE key = 'dag_name')
+      )
+    """
+    # ... (详见代码仓库)
+```
+
+---
+
+## 🚀 运行与验证
+
+### 1. 扫描最近 24 小时的管道运行
+```bash
+venv/bin/python3 python-tools/universal_pipeline_monitor.py --project binggang-lab --hours 24 --region us-central1
+```
+
+### 2. 异常告警集成 (仅看 FAILED 任务)
+加上 `--failed-only` 即可精准切入失败任务，适合配置在 crontab 定时监控或飞书/企业微信告警集成里：
+```bash
+venv/bin/python3 python-tools/universal_pipeline_monitor.py --project binggang-lab --hours 24 --region us-central1 --failed-only
+```
+
+> [!TIP]
+> 如果你在可视化 UI 中点击了“运行”，但脚本查询为空。请尝试将 `--region` 改为 `us` (大区域)，确保查询覆盖了任务注册的地理区域！
+
 
 
 
