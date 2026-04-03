@@ -18,7 +18,7 @@ def monitor_dag(composer_url, dag_id="~", hours=24, states=None):
     api_url = f"{composer_url}api/v1/dags/{dag_id}/dagRuns/~/taskInstances"
 
     authed_session = AuthorizedSession(CREDENTIALS)
-    dag_owner_cache = {}
+    dag_metadata_cache = {}
 
     # Calculate time window filter (wall-clock start time)
     params = {"limit": 50}
@@ -31,20 +31,24 @@ def monitor_dag(composer_url, dag_id="~", hours=24, states=None):
     if states:
         params["state"] = states
 
-    # Fetch DAG owner if we are querying a single DAG (no cache needed)
+    # Fetch DAG owner and tags if we are querying a single DAG (no cache needed)
     dag_owner = "N/A"
+    dag_tags = []
     if dag_id != "~":
         dag_details_url = f"{composer_url}api/v1/dags/{dag_id}"
         try:
+            print(f"ℹ️ API Request (DAG Details): {dag_details_url}")
             dag_response = authed_session.get(dag_details_url)
             dag_response.raise_for_status()
             dag_details = dag_response.json()
             dag_owner = ", ".join(dag_details.get("owners", [])) or "N/A"
-            dag_owner_cache[dag_id] = dag_owner
+            dag_tags = [tag["name"] for tag in dag_details.get("tags", [])]
+            dag_metadata_cache[dag_id] = {"owner": dag_owner, "tags": dag_tags}
         except Exception as e:
-            print(f"Warning: Could not fetch DAG owner: {e}")
+            print(f"Warning: Could not fetch DAG details: {e}")
 
     try:
+        print(f"ℹ️ API Request (Tasks): {api_url} with params: {params}")
         response = authed_session.get(api_url, params=params)
         response.raise_for_status()
         task_instances = response.json().get("task_instances", [])
@@ -52,32 +56,48 @@ def monitor_dag(composer_url, dag_id="~", hours=24, states=None):
         for task in task_instances:
             task_dag_id = task["dag_id"]
             
-            # Resolve owner using cache for All-DAGs mode
+            # Resolve owner and tags using cache for All-DAGs mode
             current_owner = "N/A"
+            current_tags = []
             if dag_id != "~":
                  current_owner = dag_owner
+                 current_tags = dag_tags
             else:
-                 if task_dag_id in dag_owner_cache:
-                      current_owner = dag_owner_cache[task_dag_id]
+                 if task_dag_id in dag_metadata_cache:
+                      current_owner = dag_metadata_cache[task_dag_id]["owner"]
+                      current_tags = dag_metadata_cache[task_dag_id]["tags"]
                  else:
                       dag_details_url = f"{composer_url}api/v1/dags/{task_dag_id}"
                       try:
+                          print(f"ℹ️ API Request (Ref DAG Details): {dag_details_url}")
                           dag_response = authed_session.get(dag_details_url)
                           dag_response.raise_for_status()
                           dag_details = dag_response.json()
                           resolved_owner = ", ".join(dag_details.get("owners", [])) or "N/A"
-                          dag_owner_cache[task_dag_id] = resolved_owner
+                          resolved_tags = [tag["name"] for tag in dag_details.get("tags", [])]
+                          dag_metadata_cache[task_dag_id] = {"owner": resolved_owner, "tags": resolved_tags}
                           current_owner = resolved_owner
+                          current_tags = resolved_tags
                       except Exception as e:
-                          print(f"Warning: Could not fetch DAG owner for {task_dag_id}: {e}")
-                          dag_owner_cache[task_dag_id] = "N/A"
+                          print(f"Warning: Could not fetch DAG details for {task_dag_id}: {e}")
+                          dag_metadata_cache[task_dag_id] = {"owner": "N/A", "tags": []}
                           current_owner = "N/A"
+                          current_tags = []
+
+            # Parse owner email from tags if present (format: owner:email)
+            extracted_owner = "N/A"
+            for tag in current_tags:
+                if tag.startswith("owner:"):
+                    extracted_owner = tag.split(":", 1)[1]
+                    break
 
             print(json.dumps({
                 "task_name": task["task_id"],
                 "task_id": task["task_id"],
                 "dag_id": task_dag_id,
                 "owner": current_owner,
+                "extracted_owner_email": extracted_owner,
+                "dag_tags": current_tags,
                 "task_start_time": task["start_date"],
                 "task_end_time": task["end_date"],
                 "task_batch_runId": task.get("dag_run_id", "N/A"),
