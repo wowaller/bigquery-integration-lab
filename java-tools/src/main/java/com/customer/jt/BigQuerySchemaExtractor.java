@@ -13,6 +13,9 @@ import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 
+import com.google.auth.oauth2.GoogleCredentials;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.util.Collections;
 
 /**
@@ -27,6 +30,7 @@ public class BigQuerySchemaExtractor {
         options.addOption("p", "project", true, "Google Cloud project ID");
         options.addOption("d", "dataset", true, "BigQuery dataset ID (optional)");
         options.addOption("t", "table", true, "BigQuery table ID (optional)");
+        options.addOption("k", "key", true, "Service Account key path (optional)");
 
         CommandLineParser parser = new DefaultParser();
         try {
@@ -34,13 +38,14 @@ public class BigQuerySchemaExtractor {
             String projectId = cmd.getOptionValue("project");
             String datasetIdArg = cmd.getOptionValue("dataset");
             String tableIdArg = cmd.getOptionValue("table");
+            String keyPath = cmd.getOptionValue("key");
 
             if (projectId == null) {
-                System.err.println("Usage: java BigQuerySchemaExtractor -p PROJECT_ID [-d DATASET_ID] [-t TABLE_ID]");
+                System.err.println("Usage: java BigQuerySchemaExtractor -p PROJECT_ID [-k KEY_PATH] [-d DATASET_ID] [-t TABLE_ID]");
                 System.exit(1);
             }
 
-            getSchemaInfo(projectId, datasetIdArg, tableIdArg);
+            getSchemaInfo(projectId, datasetIdArg, tableIdArg, keyPath);
 
         } catch (ParseException e) {
             System.err.println("Parsing failed. Reason: " + e.getMessage());
@@ -57,8 +62,20 @@ public class BigQuerySchemaExtractor {
      * @param datasetId Optional. If provided, filters for this specific dataset.
      * @param tableId Optional. If provided, filters for this specific table.
      */
-    public static void getSchemaInfo(String projectId, String datasetId, String tableId) {
-        BigQuery bigquery = BigQueryOptions.newBuilder().setProjectId(projectId).build().getService();
+    public static void getSchemaInfo(String projectId, String datasetId, String tableId, String keyPath) {
+        BigQueryOptions.Builder builder = BigQueryOptions.newBuilder().setProjectId(projectId);
+        
+        if (keyPath != null) {
+            try {
+                builder.setCredentials(GoogleCredentials.fromStream(new FileInputStream(keyPath)));
+                System.out.println("Using service account key: " + keyPath);
+            } catch (IOException e) {
+                System.err.println("Error reading key file: " + e.getMessage());
+                System.exit(1);
+            }
+        }
+        
+        BigQuery bigquery = builder.build().getService();
 
         Iterable<Dataset> datasets;
         if (datasetId != null) {

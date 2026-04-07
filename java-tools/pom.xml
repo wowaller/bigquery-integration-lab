@@ -91,7 +91,7 @@
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <!-- Main class can be overridden at runtime, but defaults to BigQuerySchemaExtractor -->
-                                    <mainClass>com.customer.jt.BigQueryJDBCExample</mainClass>
+                                    <mainClass>com.customer.jt.BigQuerySchemaExtractor</mainClass>
                                 </transformer>
                             </transformers>
                         </configuration>

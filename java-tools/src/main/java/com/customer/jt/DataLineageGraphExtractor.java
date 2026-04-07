@@ -18,6 +18,10 @@ import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 
+import com.google.auth.oauth2.GoogleCredentials;
+import java.io.FileInputStream;
+import com.google.api.gax.core.FixedCredentialsProvider;
+import com.google.cloud.datacatalog.lineage.v1.LineageSettings;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -38,6 +42,7 @@ public class DataLineageGraphExtractor {
         options.addOption("d", "dataset", true, "BigQuery dataset ID");
         options.addOption("t", "table", true, "BigQuery table ID");
         options.addOption("c", "column", true, "Column name for column lineage (optional)");
+        options.addOption("k", "key", true, "Service Account key path (optional)");
 
         CommandLineParser parser = new DefaultParser();
         try {
@@ -47,16 +52,17 @@ public class DataLineageGraphExtractor {
             String datasetId = cmd.getOptionValue("dataset");
             String tableId = cmd.getOptionValue("table");
             String column = cmd.getOptionValue("column");
+            String keyPath = cmd.getOptionValue("key");
 
             if (projectId == null || location == null || datasetId == null || tableId == null) {
-                System.err.println("Usage: java DataLineageGraphExtractor -p PROJECT_ID -l LOCATION -d DATASET_ID -t TABLE_ID [-c COLUMN]");
+                System.err.println("Usage: java DataLineageGraphExtractor -p PROJECT_ID -l LOCATION -d DATASET_ID -t TABLE_ID [-c COLUMN] [-k KEY_PATH]");
                 System.exit(1);
             }
 
             if (column != null) {
-                getColumnLineage(projectId, location, datasetId, tableId, column);
+                getColumnLineage(projectId, location, datasetId, tableId, column, keyPath);
             } else {
-                runLineageDemo(projectId, location, datasetId, tableId);
+                runLineageDemo(projectId, location, datasetId, tableId, keyPath);
             }
 
         } catch (ParseException e) {
@@ -72,8 +78,16 @@ public class DataLineageGraphExtractor {
      * @param jobId The BigQuery Job ID to query.
      * @param location The location of the job.
      */
-    public static void getBigQueryJobDetails(String projectId, String jobId, String location) {
-        BigQuery bigquery = BigQueryOptions.newBuilder().setProjectId(projectId).build().getService();
+    public static void getBigQueryJobDetails(String projectId, String jobId, String location, String keyPath) {
+        BigQueryOptions.Builder builder = BigQueryOptions.newBuilder().setProjectId(projectId);
+        if (keyPath != null) {
+            try {
+                builder.setCredentials(GoogleCredentials.fromStream(new FileInputStream(keyPath)));
+            } catch (IOException e) {
+                System.err.println("    Error reading key file in getBigQueryJobDetails: " + e.getMessage());
+            }
+        }
+        BigQuery bigquery = builder.build().getService();
         try {
             Job job = bigquery.getJob(JobId.of(projectId, jobId));
             if (job != null) {
@@ -97,8 +111,19 @@ public class DataLineageGraphExtractor {
      * @param tableId Table ID.
      * @param column Column name.
      */
-    public static void getColumnLineage(String projectId, String location, String datasetId, String tableId, String column) {
-        try (LineageClient lineageClient = LineageClient.create()) {
+    public static void getColumnLineage(String projectId, String location, String datasetId, String tableId, String column, String keyPath) {
+        LineageSettings.Builder settingsBuilder = LineageSettings.newBuilder();
+        if (keyPath != null) {
+            try {
+                settingsBuilder.setCredentialsProvider(FixedCredentialsProvider.create(GoogleCredentials.fromStream(new FileInputStream(keyPath))));
+                System.out.println("Using service account key for LineageClient: " + keyPath);
+            } catch (IOException e) {
+                System.err.println("Error reading key file for LineageClient: " + e.getMessage());
+                System.exit(1);
+            }
+        }
+
+        try (LineageClient lineageClient = LineageClient.create(settingsBuilder.build())) {
             String target = String.format("bigquery:%s.%s.%s", projectId, datasetId, tableId); // Wait, column lineage target usually includes column name!
             // If the python code just uses bigquery:project.dataset.table for column lineage, it might be querying the table and then filtering?
             // In the python code (line 66), target was "bigquery:{project_id}.{dataset_id}.{table_id}". This seems to be table lineage, not column lineage!
@@ -141,8 +166,19 @@ public class DataLineageGraphExtractor {
      * @param datasetId Dataset ID.
      * @param tableId Table ID.
      */
-    public static void runLineageDemo(String projectId, String location, String datasetId, String tableId) {
-        try (LineageClient lineageClient = LineageClient.create()) {
+    public static void runLineageDemo(String projectId, String location, String datasetId, String tableId, String keyPath) {
+        LineageSettings.Builder settingsBuilder = LineageSettings.newBuilder();
+        if (keyPath != null) {
+            try {
+                settingsBuilder.setCredentialsProvider(FixedCredentialsProvider.create(GoogleCredentials.fromStream(new FileInputStream(keyPath))));
+                System.out.println("Using service account key for LineageClient: " + keyPath);
+            } catch (IOException e) {
+                System.err.println("Error reading key file for LineageClient: " + e.getMessage());
+                System.exit(1);
+            }
+        }
+
+        try (LineageClient lineageClient = LineageClient.create(settingsBuilder.build())) {
             String target = String.format("bigquery:%s.%s.%s", projectId, datasetId, tableId);
             String parent = String.format("projects/%s/locations/%s", projectId, location);
 
@@ -188,7 +224,7 @@ public class DataLineageGraphExtractor {
 
                 if (jobId != null) {
                     System.out.println("  Found Job ID: " + jobId);
-                    getBigQueryJobDetails(projectId, jobId, location);
+                    getBigQueryJobDetails(projectId, jobId, location, keyPath);
                 }
             }
 
